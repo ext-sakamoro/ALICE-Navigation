@@ -2,7 +2,7 @@
 name = "alice-navigation"
 version = "1.0.0"
 edition = "2021"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 authors = ["Moroya Sakamoto"]
 description = "Autonomous navigation: RRT, PRM, potential field, obstacle avoidance, path smoothing, waypoint following, velocity obstacles, navigation mesh, dynamic replanning"
 
