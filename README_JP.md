@@ -38,7 +38,7 @@ PathProcessor（経路処理）
  └── ウェイポイント追従（先読み）
 
 VelocityObstacle
- └── 動的エージェント回避
+ └── 動的な移動体の回避
 
 NavMesh
  └── ポリゴンベースナビゲーション
