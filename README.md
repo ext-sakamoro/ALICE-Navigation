@@ -56,4 +56,6 @@ let dist = start.distance_to(goal);
 
 ## License
 
-MIT OR Apache-2.0
+`LicenseRef-Proprietary`. The text is [LICENSE-Proprietary](LICENSE-Proprietary).
+
+Enquiries: https://extoria.co.jp/
