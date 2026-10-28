@@ -218,6 +218,14 @@ fn complete_at_the_any_direction_bound() {
     let h = std::f32::consts::FRAC_1_SQRT_2;
     let (yes, no) = corridor_reached([h, h], bound + 1e-3, 16);
     assert_eq!((yes, no), (16, 0), "bound {bound}");
+    // just below the bound some grid offset misses the diagonal passage (the bound is tight here
+    // too, not loose)
+    let (yes, no) = corridor_reached([h, h], bound - 0.02, 16);
+    eprintln!("[sdf_reach diagonal below] reached {yes}, missed {no}");
+    assert!(
+        no > 0,
+        "nothing missed below the diagonal bound: the test has no teeth"
+    );
 }
 
 #[test]
