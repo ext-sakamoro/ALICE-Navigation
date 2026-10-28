@@ -22,13 +22,18 @@ jobs:
         run: cargo fmt -- --check
 
   test:
-    name: Clippy and tests
-    runs-on: ubuntu-latest
+    name: Clippy and tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # the reach witness hash (tests/sdf_reach_oracle.rs) must be the same on every platform
+        os: [ubuntu-latest, macos-latest, windows-latest]
     env:
-      # the passed-test count at the commit that set it; fewer passed tests (a removed or skipped test,
-      # or none at all) is a failure
-      MIN_PASSED: "105"
+      # the passed-test count at the commit that set it, all features on; fewer passed tests (a
+      # removed or skipped test, or none at all) is a failure
+      MIN_PASSED: "117"
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -36,11 +41,41 @@ jobs:
           components: clippy
       - name: Clippy (all targets, -D warnings)
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Clippy (all targets, all features, -D warnings)
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Passed tests are at least MIN_PASSED
+        shell: bash
         run: |
           set -o pipefail
           log="$(mktemp)"
-          cargo test --locked --all-targets 2>&1 | tee "$log"
+          cargo test --locked --all-targets --all-features 2>&1 | tee "$log"
+          passed=$(grep -E '^test result: ' "$log" | awk '{s += $4} END {print s + 0}')
+          echo "passed: ${passed} (minimum ${MIN_PASSED})"
+          if [ "${passed}" -lt "${MIN_PASSED}" ]; then
+            echo "::error::${passed} tests passed, fewer than ${MIN_PASSED}"
+            exit 1
+          fi
+
+  wasm:
+    name: Reach oracles on wasm32-wasip1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # the oracles in tests/sdf_reach_oracle.rs, including the witness hash
+      MIN_PASSED: "12"
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+      - name: Passed tests are at least MIN_PASSED
+        run: |
+          set -o pipefail
+          rustup target add wasm32-wasip1
+          log="$(mktemp)"
+          cargo test --locked --target wasm32-wasip1 --features sdf-field --test sdf_reach_oracle 2>&1 | tee "$log"
           passed=$(grep -E '^test result: ' "$log" | awk '{s += $4} END {print s + 0}')
           echo "passed: ${passed} (minimum ${MIN_PASSED})"
           if [ "${passed}" -lt "${MIN_PASSED}" ]; then

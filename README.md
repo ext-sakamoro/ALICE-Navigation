@@ -17,6 +17,7 @@ Part of [Project A.L.I.C.E.](https://github.com/anthropics/alice) ecosystem.
 - **Velocity Obstacles** — Dynamic obstacle avoidance in velocity space
 - **Navigation Mesh** — Polygon-based walkable area representation
 - **Dynamic Replanning** — On-the-fly path recalculation on environment changes
+- **Reachability over a distance field** (feature `sdf-field`) — Conservative reachability of a vertical capsule over any signed distance field, with a witness path: a reported path is collision-free, and passages wider than a stated bound are always found; deterministic across platforms
 
 ## Architecture
 

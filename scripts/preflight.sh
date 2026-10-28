@@ -6,7 +6,7 @@
 # Run `--quick` before every push.
 #
 # usage: scripts/preflight.sh [--quick]   (--quick skips the test / bench suites)
-# generator rev ba5ce5ffe222b20ef2056d598c76fe6342cef927
+# generator rev 8a1156d8db92d2c6d68043a4720930a2fa98bcbd
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # --- heavy slot (begin) ---
@@ -15,8 +15,11 @@ cd "$(dirname "$0")/.."
 # keeper process (perl) takes it and exits within a second of the holder's death, so a killed holder frees the slot
 # and no child of the holder keeps it. Waiters queue in arrival order (FIFO): each keeper leaves a ticket in queue/
 # (its start time and pid), and only the oldest live ticket may take a free slot; a ticket whose keeper is gone (a
-# crash) is skipped and removed. A waiter prints its place and its wait once a minute. `info.<k>` only names the
-# holder of slot k. A wait past ALICE_HEAVY_SLOT_TIMEOUT seconds (default 7200) fails; the holder's own nested runs
+# crash) is skipped and removed. A waiter prints its place and its wait once a minute. The keeper of slot k names
+# itself `alice-heavy-slot keeper slot=<k> holder=<pid> dirhex=<the dir's bytes in hex> end` (its process title,
+# which no file cleanup removes; the dir in hex so no dir can end the title early), and the holder of slot k is read
+# from there (only from a perl process, and only while the holder lives); `info.<k>` only adds the holder's label and tool, and a
+# release removes it only while it names the releasing shell. A wait past ALICE_HEAVY_SLOT_TIMEOUT seconds (default 7200) fails; the holder's own nested runs
 # (ALICE_HEAVY_SLOT_HELD) run inside its slot.
 heavy_slot_dir() { printf '%s\n' "${ALICE_HEAVY_SLOT_DIR:-$HOME/.cache/alice-heavy-slot}"; }
 heavy_slot_count() {
@@ -25,13 +28,59 @@ heavy_slot_count() {
     *) echo "heavy slot: ALICE_HEAVY_SLOTS must be an integer from 1 to 16 (got '${ALICE_HEAVY_SLOTS:-}')" >&2; return 1 ;;
   esac
 }
-# "label pid (tool)" of every held slot, joined with ", "
+# whether $1 is a perl process (a keeper): its title is its own, so the executable is checked (macOS keeps it as
+# the accounting name `ucomm`; Linux sets comm from the title, so the executable's path is read there)
+heavy_slot_is_perl() {
+  local exe
+  if [ -e "/proc/$1/exe" ]; then
+    exe=$(readlink "/proc/$1/exe" 2>/dev/null) || return 1
+    case "${exe##*/}" in perl*) return 0 ;; *) return 1 ;; esac
+  fi
+  [ "$(ps -o ucomm= -p "$1" 2>/dev/null | tr -d ' ')" = perl ]
+}
+# "<k> <holder pid>" of every slot of $1 held by a live keeper (from the keepers' process titles: a perl process
+# whose title names this dir, while its holder lives). A slot whose keeper has no title (a keeper of a copy of this
+# block from before the titles: an older generated preflight, or a run started before the update) is read from
+# info.<k> while its holder lives and lock.<k> is held
+heavy_slot_live() {
+  local d=$1 hex titled="" f k h p
+  hex=$(printf '%s' "$d" | od -An -tx1 | tr -d ' \n')
+  while read -r p k h; do
+    heavy_slot_is_perl "$p" || continue
+    kill -0 "$h" 2>/dev/null || continue
+    titled="${titled:+$titled
+}$k $h"
+  done < <(ps -A -ww -o pid=,command= 2>/dev/null | awk -v hex="$hex" '
+    { if (match($0, /alice-heavy-slot keeper slot=[0-9]+ holder=[0-9]+ dirhex=[0-9a-f]+ end/)) {
+        split(substr($0, RSTART, RLENGTH), w, /[ =]/)
+        if (w[8] == hex) print $1, w[4], w[6] } }')
+  {
+    [ -n "$titled" ] && printf '%s\n' "$titled"
+    for f in "$d"/info.*; do
+      k=${f##*/info.}
+      case "$k" in '' | *[!0-9]*) continue ;; esac
+      printf '%s\n' "$titled" | awk -v k="$k" '$1 == k { found = 1 } END { exit !found }' && continue
+      h=$(sed -n 1p "$f" 2>/dev/null)
+      case "$h" in '' | *[!0-9]*) continue ;; esac
+      kill -0 "$h" 2>/dev/null || continue
+      perl -MFcntl=:flock -e 'open(my $f, ">>", $ARGV[0]) or exit 1; exit(flock($f, LOCK_EX | LOCK_NB) ? 1 : 0)' \
+        "$d/lock.$k" 2>/dev/null || continue
+      printf '%s %s\n' "$k" "$h"
+    done
+  } | sort -n
+}
+# "label pid (tool)" of every held slot, joined with ", " (the label and tool from info.<k> while it names the
+# holder, `unlabelled` otherwise)
 heavy_slot_holders() {
-  local d=$1 f out=""
-  for f in "$d"/info.*; do
-    [ -s "$f" ] || continue
-    out="${out:+$out, }$(sed -n 3p "$f") pid $(sed -n 1p "$f") ($(sed -n 4p "$f"))"
-  done
+  local d=$1 k h f out=""
+  while read -r k h; do
+    f="$d/info.$k"
+    if [ "$(sed -n 1p "$f" 2>/dev/null)" = "$h" ]; then
+      out="${out:+$out, }$(sed -n 3p "$f") pid $h ($(sed -n 4p "$f"))"
+    else
+      out="${out:+$out, }unlabelled pid $h (info.$k missing)"
+    fi
+  done < <(heavy_slot_live "$d")
   printf '%s\n' "${out:-nobody}"
 }
 heavy_slot_acquire() {
@@ -39,9 +88,7 @@ heavy_slot_acquire() {
   d=$(heavy_slot_dir)
   n=$(heavy_slot_count) || return 1
   if [ -n "${ALICE_HEAVY_SLOT_HELD:-}" ] && kill -0 "$ALICE_HEAVY_SLOT_HELD" 2>/dev/null; then
-    for f in "$d"/info.*; do
-      [ "$(sed -n 1p "$f" 2>/dev/null)" = "$ALICE_HEAVY_SLOT_HELD" ] && return 0
-    done
+    heavy_slot_live "$d" | awk -v h="$ALICE_HEAVY_SLOT_HELD" '$2 == h { found = 1 } END { exit !found }' && return 0
   fi
   if ! err=$(mkdir -p "$d/queue" 2>&1); then
     echo "heavy slot: cannot create $d: ${err:-not writable}" >&2
@@ -77,6 +124,7 @@ heavy_slot_acquire() {
         for my $k (0 .. $n - 1) {
           next unless flock($fh[$k], LOCK_EX | LOCK_NB);
           unlink $ticket; undef $ticket;
+          $0 = "alice-heavy-slot keeper slot=$k holder=$parent dirhex=" . unpack("H*", $dir) . " end";
           print "held $k\n"; close(STDOUT);
           sleep 1 while getppid() == $parent;
           exit 0;
@@ -125,8 +173,11 @@ heavy_slot_release() {
   local d
   d=$(heavy_slot_dir)
   if [ "${ALICE_HEAVY_SLOT_HELD:-}" = "$$" ] && [ -n "${HEAVY_SLOT_KEEPER:-}" ]; then
-    # the info first: once the keeper is gone the next holder writes its own
-    rm -f "$d/info.${HEAVY_SLOT_INDEX:-}"
+    # the info first: once the keeper is gone the next holder writes its own. Only while it names this shell: when
+    # the keeper died first (`pkill -P` on the holder), the slot may already be another holder's, with its info
+    if [ "$(sed -n 1p "$d/info.${HEAVY_SLOT_INDEX:-}" 2>/dev/null)" = "$$" ]; then
+      rm -f "$d/info.${HEAVY_SLOT_INDEX:-}"
+    fi
     kill "$HEAVY_SLOT_KEEPER" 2>/dev/null || true
     HEAVY_SLOT_KEEPER=
   fi
@@ -204,8 +255,8 @@ heavy_slot_watch() {
       # the slots were numbered (an older generated preflight), which has no watcher, so the watcher of the
       # largest numbered slot stops it when it is the largest
       total=0 largest="" largest_sum=-1 largest_new="" largest_new_sum=-1 slots=0
-      for f in "$d"/info.* "$d/info"; do
-        h=$(sed -n 1p "$f" 2>/dev/null) || continue
+      for f in $(heavy_slot_live "$d" | awk '{ print "keeper:" $2 }') "$d/info"; do
+        case "$f" in keeper:*) h=${f#keeper:} ;; *) h=$(sed -n 1p "$f" 2>/dev/null) || continue ;; esac
         [ -n "$h" ] && kill -0 "$h" 2>/dev/null || continue
         hsum=$(printf '%s\n' "$snap" | heavy_slot_tree_in "$h" | awk '{ s += $2 } END { printf "%d", s / 1024 }')
         total=$((total + hsum)) slots=$((slots + 1))
@@ -235,7 +286,30 @@ heavy_slot_watch() {
 }
 # --- heavy slot (end) ---
 heavy_slot_acquire "$(basename "$PWD")" preflight || exit 1
-trap heavy_slot_release EXIT
+gh_files=$(mktemp -d)
+gh_local=0
+[ -z "${GITHUB_ENV:-}" ] && gh_local=1
+export GITHUB_OUTPUT="${GITHUB_OUTPUT:-$gh_files/output}" GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-$gh_files/summary}"
+export RUNNER_TEMP="${RUNNER_TEMP:-$gh_files/runner-temp}"
+mkdir -p "$RUNNER_TEMP"
+trap 'heavy_slot_release; rm -rf "$gh_files"' EXIT
+# gh_step <job>: this job's $GITHUB_ENV / $GITHUB_PATH, with what its earlier steps wrote loaded
+gh_step() {
+  [ "$gh_local" = 1 ] || return 0
+  export GITHUB_ENV="$gh_files/$1.env" GITHUB_PATH="$gh_files/$1.path"
+  touch "$GITHUB_ENV" "$GITHUB_PATH"
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '') ;;
+      *'<<'*) echo "preflight: a multi-line \$GITHUB_ENV value is not reproduced here: $line" >&2; return 1 ;;
+      [A-Za-z_]*=*) export "${line%%=*}=${line#*=}" ;;
+      *) echo "preflight: not a NAME=value line in \$GITHUB_ENV: $line" >&2; return 1 ;;
+    esac
+  done < "$GITHUB_ENV"
+  while IFS= read -r line || [ -n "$line" ]; do [ -n "$line" ] && PATH="$line:$PATH"; done < "$GITHUB_PATH"
+  export PATH
+}
 heavy_slot_cap_ok || exit 2
 heavy_slot_watch "$$" >/dev/null &
 
@@ -249,17 +323,37 @@ relint() { git ls-files | grep -E '(^|/)src/(lib|main)\.rs$' | xargs -r touch; }
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing tool: $1 ($2)" >&2; exit 1; }; }
 has_toolchain() { grep -q "^$1" <<<"$(rustup toolchain list)"; }
 
+# Steps CI runs that this file cannot reproduce locally (they can only fail remotely):
+#   - ci.yml:wasm: uses bytecodealliance/actions/wasmtime/setup@v1 (an action this file cannot run)
+#   - ci.yml:wasm:Passed tests are at least MIN_PASSED (needs network / runner-only)
+
 need actionlint "brew install actionlint"
 
 step "ci.yml / fmt: Check formatting"
+(
+  gh_step ci.yml.fmt
 ( export CARGO_TERM_COLOR="always"; cargo fmt -- --check )
+)
 
 step "ci.yml / test: Clippy (all targets, -D warnings)"
+(
+  gh_step ci.yml.test
 relint
-( export CARGO_TERM_COLOR="always" MIN_PASSED="105"; cargo clippy --locked --all-targets -- -D warnings )
+( export CARGO_TERM_COLOR="always" MIN_PASSED="117"; cargo clippy --locked --all-targets -- -D warnings )
+)
+
+step "ci.yml / test: Clippy (all targets, all features, -D warnings)"
+(
+  gh_step ci.yml.test
+relint
+( export CARGO_TERM_COLOR="always" MIN_PASSED="117"; cargo clippy --locked --all-targets --all-features -- -D warnings )
+)
 
 step "ci.yml / actionlint: actionlint"
+(
+  gh_step ci.yml.actionlint
 actionlint .github/workflows/*.yml
+)
 
 if [[ $quick -eq 1 ]]; then
   echo; echo "preflight --quick OK (test / bench suites skipped)"; exit 0
@@ -267,16 +361,19 @@ fi
 
 step "ci.yml / test: Passed tests are at least MIN_PASSED"
 (
-  export CARGO_TERM_COLOR="always" MIN_PASSED="105"
+  gh_step ci.yml.test
+(
+  export CARGO_TERM_COLOR="always" MIN_PASSED="117"
   set -o pipefail
   log="$(mktemp)"
-  cargo test --locked --all-targets 2>&1 | tee "$log"
+  cargo test --locked --all-targets --all-features 2>&1 | tee "$log"
   passed=$(grep -E '^test result: ' "$log" | awk '{s += $4} END {print s + 0}')
   echo "passed: ${passed} (minimum ${MIN_PASSED})"
   if [ "${passed}" -lt "${MIN_PASSED}" ]; then
     echo "::error::${passed} tests passed, fewer than ${MIN_PASSED}"
     exit 1
   fi
+)
 )
 
 echo; echo "preflight OK"

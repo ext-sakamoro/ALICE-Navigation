@@ -9,3 +9,17 @@ description = "Autonomous navigation: RRT, PRM, potential field, obstacle avoida
 
 [lib]
 crate-type = ["rlib"]
+
+[features]
+# Conservative reachability over a signed distance field (`sdf_reach`). The field is
+# alice-physics' `SdfField`, which alice-sdf's `CompiledSdf` and `LiveSdf` implement.
+sdf-field = ["dep:alice-physics"]
+
+[dependencies]
+# The same rev alice-sdf pins: alice-physics from another rev is a different crate,
+# and alice-sdf's `SdfField` impls would not satisfy this one.
+alice-physics = { git = "https://github.com/ext-sakamoro/ALICE-Physics", rev = "b672ff2ec95c036ca60413c15e0212970026ec26", version = "4", default-features = false, features = ["std"], optional = true }
+
+[[example]]
+name = "sdf_reach"
+required-features = ["sdf-field"]

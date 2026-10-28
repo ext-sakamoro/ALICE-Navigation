@@ -34,6 +34,8 @@ pub mod potential_field;
 pub mod prelude;
 pub mod prm;
 pub mod rrt;
+#[cfg(feature = "sdf-field")]
+pub mod sdf_reach;
 pub mod util;
 pub mod velocity_obstacles;
 pub mod waypoint;
