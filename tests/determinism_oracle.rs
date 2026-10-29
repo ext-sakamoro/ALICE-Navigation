@@ -1,5 +1,5 @@
-//! One distance definition, a stated valid range, and pinned outputs that must be the same on every
-//! platform (CI: Linux, macOS, Windows, wasm32-wasip1).
+//! One distance definition, a measured accuracy bound, and pinned outputs that must be the same
+//! on every platform (CI: Linux, macOS, Windows, wasm32-wasip1).
 
 use alice_navigation::core_types::{Bounds2D, Vec2};
 use alice_navigation::graph_search::{astar, distance, SearchGraph};
@@ -67,7 +67,7 @@ fn vec2_length_is_exact_where_the_square_root_is() {
 
 // --- a high-precision reference for the length (double-double, no fused operation) -------------
 
-/// `a·b` exactly as `hi + lo` (Dekker's split).
+/// `a·b` exactly as `hi + lo` (Dekker's split; exact while the parts stay normal).
 fn two_product(a: f64, b: f64) -> (f64, f64) {
     let split = |x: f64| {
         let c = 134_217_729.0 * x; // 2^27 + 1
@@ -86,9 +86,34 @@ fn two_sum(a: f64, b: f64) -> (f64, f64) {
     (s, (a - (s - bb)) + (b - bb))
 }
 
-/// `sqrt(x² + y² + z²)` to about 1e-30 relative, then rounded once: the components are first
-/// scaled by an exact power of two so nothing overflows, the squares summed in double-double, and
-/// the square root refined by one Newton step in double-double.
+/// `2^e` for `e` in the normal range, from its bits.
+fn pow2(e: i32) -> f64 {
+    assert!((-1022..=1023).contains(&e), "2^{e} is not a normal f64");
+    f64::from_bits(((e + 1023) as u64) << 52)
+}
+
+/// `x · 2^e` exactly when the result is normal (two normal factors, so `e` may span the whole
+/// range of exponents).
+fn scale2(x: f64, e: i32) -> f64 {
+    let a = e / 2;
+    x * pow2(a) * pow2(e - a)
+}
+
+/// The binary exponent of a finite non-zero `m` (subnormals included).
+fn exponent(m: f64) -> i32 {
+    let raw = ((m.to_bits() >> 52) & 0x7ff) as i32;
+    if raw == 0 {
+        exponent(m * pow2(64)) - 64
+    } else {
+        raw - 1023
+    }
+}
+
+/// `sqrt(x² + y² + z²)` to about 1e-30 relative, then rounded: the components are scaled by an
+/// exact power of two so the largest lies in `[1, 2)`, the squares summed in double-double and the
+/// square root refined by one Newton step in double-double. For a normal result this is the
+/// correctly rounded length (bar ties within 1e-30); for a subnormal result it is rounded twice
+/// (to 53 bits, then to the subnormal grid).
 fn reference_norm(v: [f64; 3]) -> f64 {
     let m = v
         .iter()
@@ -96,12 +121,11 @@ fn reference_norm(v: [f64; 3]) -> f64 {
     if m == 0.0 {
         return 0.0;
     }
-    // the exponent of the largest magnitude, from its bits (log2 rounds f64::MAX up to 1024)
-    let k = ((m.to_bits() >> 52) & 0x7ff) as i32 - 1023;
-    let scale = pow2(-k);
+    let k = exponent(m);
     let (mut hi, mut lo) = (0.0, 0.0);
     for c in v {
-        let s = c * scale; // exact (power of two, no subnormals at these magnitudes)
+        // components below 2^-1022 after scaling lose bits, at most 2^-1074 against a sum ≥ 1
+        let s = scale2(c, -k);
         let (p, e) = two_product(s, s);
         let (h, l) = two_sum(hi, p);
         hi = h;
@@ -111,88 +135,156 @@ fn reference_norm(v: [f64; 3]) -> f64 {
     let r = h.sqrt();
     let (rr, rre) = two_product(r, r);
     let corr = ((h - rr) - rre + l) / (2.0 * r);
-    (r + corr) * pow2(k)
-}
-
-/// `2^e` exactly, built from its bits (normal and subnormal range).
-fn pow2(e: i32) -> f64 {
-    assert!(
-        (-1074..=1023).contains(&e),
-        "2^{e} is not a finite non-zero f64"
-    );
-    if e >= -1022 {
-        f64::from_bits(((e + 1023) as u64) << 52)
-    } else {
-        f64::from_bits(1u64 << (e + 1074))
-    }
+    scale2(r + corr, k)
 }
 
 fn ulps(a: f64, b: f64) -> u64 {
     (a.to_bits() as i64 - b.to_bits() as i64).unsigned_abs()
 }
 
+/// A random vector whose largest component has binary exponent `e`, the others up to 70 binades
+/// smaller (or zero), random signs; `z = 0` when `dims == 2`.
+fn random_vector(g: &mut Lcg, e: i32, dims: usize) -> [f64; 3] {
+    let mut v = [0.0; 3];
+    let lead = (g.next() * 3.0) as usize % dims;
+    for (i, c) in v.iter_mut().enumerate().take(dims) {
+        let sign = if g.next() < 0.5 { -1.0 } else { 1.0 };
+        let mantissa = 1.0 + g.next(); // [1, 2)
+        let ei = if i == lead {
+            e
+        } else if g.next() < 0.1 {
+            continue;
+        } else {
+            e - (g.next() * 70.0) as i32
+        };
+        if ei < -1074 {
+            continue;
+        }
+        // the mantissa is rounded to the subnormal grid there; still an exact input
+        *c = sign
+            * if ei >= -1022 {
+                scale2(mantissa, ei)
+            } else {
+                mantissa * pow2(-1022) * pow2(ei + 1022)
+            };
+    }
+    v
+}
+
+/// Two vectors where the division-based fallback was 2 ulps off and where the squares underflowed
+/// to nothing.
 #[test]
-fn huge_lengths_are_finite_and_within_one_ulp() {
+fn the_reported_vectors_are_within_one_ulp() {
     use alice_navigation::graph_search::norm;
-    let big = [
-        [1e154, 1e154, 0.0],
-        [1e154, -3e153, 7e153],
-        [f64::MAX, 0.0, 0.0],
-        [f64::MAX / 2.0, f64::MAX / 2.0, 0.0],
-        [f64::MAX / 3.0, -f64::MAX / 3.0, f64::MAX / 3.0],
-        [1.5e300, 2e299, -1e300],
-        // the largest component in each position
-        [3e299, -1.7e308, 1e300],
-        [1e300, -2e299, 1.7e308],
-        // and much larger than the others (scaling by a smaller one overflows)
-        [0.0, 0.0, f64::MAX],
-        [1.0, -1e-300, 1.7e308],
-    ];
-    for v in big {
-        let n = norm(v);
-        assert!(n.is_finite(), "{v:?} → {n}");
-        let r = reference_norm(v);
+    for v in [
+        [6.067_314_953_608_391e307, -5.460_867_120_410_906e307, 0.0],
+        [1.33e-165, 1.546e-162, 0.0],
+    ] {
+        let (n, r) = (norm(v), reference_norm(v));
         assert!(
             ulps(n, r) <= 1,
-            "{v:?}: {n} vs reference {r} ({} ulps)",
+            "{v:?}: {n:e} vs reference {r:e} ({} ulps)",
             ulps(n, r)
         );
+        let w = Vec2::new(v[0], v[1]).length();
+        assert_eq!(w.to_bits(), n.to_bits());
     }
-    assert!(Vec2::new(1e154, 1e154).length().is_finite());
+}
+
+/// A seeded sweep over the whole exponent range of the largest component (2^-1022 .. 2^1023, both
+/// the overflow and the underflow ends), 2D and 3D: the measured bound for every normal length is
+/// 1 ulp against the reference.
+#[test]
+fn a_sweep_across_the_exponent_range_stays_within_one_ulp() {
+    use alice_navigation::graph_search::norm;
+    let mut g = Lcg(23);
+    let (mut cases, mut worst, mut low, mut high) = (0u32, 0u64, 0u32, 0u32);
+    for dims in [2, 3] {
+        for _ in 0..20_000 {
+            let e = -1022 + (g.next() * 2046.0) as i32;
+            let v = random_vector(&mut g, e, dims);
+            let r = reference_norm(v);
+            if !r.is_finite() || r < f64::MIN_POSITIVE {
+                continue;
+            }
+            let d = ulps(norm(v), r);
+            assert!(d <= 1, "{v:?}: {:e} vs reference {r:e} ({d} ulps)", norm(v));
+            worst = worst.max(d);
+            cases += 1;
+            low += u32::from(e < -511);
+            high += u32::from(e > 511);
+        }
+    }
+    // not a vacuous sweep: both ends where the plain form fails are well represented
+    assert!(
+        cases >= 39_000 && low >= 9_000 && high >= 9_000,
+        "{cases} {low} {high}"
+    );
+    println!("normal lengths: {cases} cases, worst {worst} ulp ({low} low-end, {high} high-end)");
+}
+
+/// Lengths below `f64::MIN_POSITIVE` (largest component subnormal or just above): within 1 ulp of
+/// the subnormal grid.
+#[test]
+fn subnormal_lengths_stay_within_one_ulp_of_the_grid() {
+    use alice_navigation::graph_search::norm;
+    let mut g = Lcg(29);
+    let mut cases = 0u32;
+    for dims in [2, 3] {
+        for _ in 0..5_000 {
+            let e = -1074 + (g.next() * 52.0) as i32;
+            let v = random_vector(&mut g, e, dims);
+            let r = reference_norm(v);
+            if r >= f64::MIN_POSITIVE {
+                continue;
+            }
+            assert!(ulps(norm(v), r) <= 1, "{v:?}: {:e} vs {r:e}", norm(v));
+            cases += 1;
+        }
+    }
+    assert!(cases >= 5_000, "{cases}");
+    assert_eq!(norm([f64::from_bits(1), 0.0, 0.0]), f64::from_bits(1));
+    assert_eq!(
+        norm([0.0, -f64::from_bits(3), f64::from_bits(4)]),
+        f64::from_bits(5)
+    );
+}
+
+#[test]
+fn the_extremes() {
+    use alice_navigation::graph_search::norm;
+    for v in [
+        [f64::MAX, 0.0, 0.0],
+        [0.0, 0.0, f64::MAX],
+        [1.0, -1e-300, 1.7e308],
+    ] {
+        assert_eq!(norm(v).to_bits(), reference_norm(v).to_bits(), "{v:?}");
+    }
     assert!(Vec2::new(f64::MAX / 2.0, -f64::MAX / 2.0)
         .distance_to(Vec2::new(0.0, 0.0))
         .is_finite());
     // the true length √2·MAX is not representable: +∞ is the stated answer, not an overflow
     assert_eq!(Vec2::new(f64::MAX, -f64::MAX).length(), f64::INFINITY);
-    // and the ordinary range stays within 1 ulp of the reference too
-    let mut g = Lcg(5);
-    for _ in 0..2000 {
-        let v = [
-            g.next() * 2e3 - 1e3,
-            g.next() * 2e3 - 1e3,
-            g.next() * 2e3 - 1e3,
-        ];
-        assert!(ulps(norm(v), reference_norm(v)) <= 1, "{v:?}");
-    }
 }
 
+/// Where every non-zero square is normal and the sum is finite, the plain form is as accurate as
+/// any scaled one, and its bits are kept (the pinned paths and hashes depend on them).
 #[test]
-fn the_plain_form_keeps_its_bits_where_it_is_finite() {
+fn the_plain_form_keeps_its_bits_where_it_is_accurate() {
     use alice_navigation::graph_search::norm;
     let mut g = Lcg(11);
+    let mut compared = 0u32;
     for _ in 0..20_000 {
-        let e = (g.next() * 600.0 - 300.0).round() as i32;
-        let s = pow2(e);
-        let v = [
-            (g.next() - 0.5) * s,
-            (g.next() - 0.5) * s,
-            (g.next() - 0.5) * s,
-        ];
+        let e = (g.next() * 1200.0 - 600.0).round() as i32;
+        let v = random_vector(&mut g, e, 3);
         let plain = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-        if plain.is_finite() {
+        let accurate = v.iter().all(|c| *c == 0.0 || c * c >= f64::MIN_POSITIVE);
+        if plain.is_finite() && accurate {
             assert_eq!(norm(v).to_bits(), plain.to_bits(), "{v:?}");
+            compared += 1;
         }
     }
+    assert!(compared >= 5_000, "{compared}");
 }
 
 #[test]
@@ -217,6 +309,35 @@ fn lengths_never_decrease_across_the_switch_point() {
             x = f64::from_bits(x.to_bits() + 1);
         }
         assert!(switched, "{dir:?}: the sweep never reached the fallback");
+    }
+}
+
+/// The plain form is used for a largest component in `[2^-500, 2^500]` (the documented switch
+/// points): ulp-step sweeps across both, and a geometric sweep over the whole range.
+#[test]
+fn lengths_never_decrease_across_the_plain_range_ends() {
+    use alice_navigation::graph_search::norm;
+    for edge in [pow2(500), pow2(-500)] {
+        for dir in [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0, -0.75, 0.5]] {
+            let mut x = f64::from_bits(edge.to_bits() - 5000);
+            let mut prev = 0.0f64;
+            for _ in 0..10_000 {
+                let n = norm([dir[0] * x, dir[1] * x, dir[2] * x]);
+                assert!(n >= prev, "{dir:?} at {x:e}: {n:e} < {prev:e}");
+                prev = n;
+                x = f64::from_bits(x.to_bits() + 1);
+            }
+            assert!(x > edge, "the sweep crossed the switch point");
+        }
+    }
+    // 1e-320 .. 1e308 in steps of 0.5 %: far wider than 1 ulp, so a 1-ulp bound keeps it monotonic
+    let mut x = 1e-320f64;
+    let mut prev = 0.0f64;
+    while x < 1e308 {
+        let n = norm([x, -0.5 * x, 0.25 * x]);
+        assert!(n >= prev, "{x:e}: {n:e} < {prev:e}");
+        prev = n;
+        x *= 1.005;
     }
 }
 

@@ -17,8 +17,8 @@ impl Vec2 {
     }
 
     /// `sqrt(x² + y²)`: [`crate::graph_search::norm`] with `z = 0`, so the same bits as
-    /// [`crate::graph_search::distance`] (`+ − × ÷ √` only, the same on every platform, no intermediate
-    /// overflow; NaN in, NaN out; an infinite component gives +∞).
+    /// [`crate::graph_search::distance`] (`+ − × ÷ √` only, the same on every platform, no overflow or
+    /// underflow on the way, within 1 ulp; NaN in, NaN out; an infinite component gives +∞).
     #[must_use]
     pub fn length(self) -> f64 {
         crate::graph_search::norm([self.x, self.y, 0.0])

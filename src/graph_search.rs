@@ -43,20 +43,57 @@ pub fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// Euclidean length `sqrt(x² + y² + z²)` with `+ − × ÷ √` only (correctly rounded by IEEE 754,
 /// the same bits on every platform).
 ///
-/// No intermediate overflow: when the squares overflow, the length is computed as
-/// `m · sqrt((x/m)² + (y/m)² + (z/m)²)` with `m` the largest magnitude, so the result is finite
-/// whenever the true length is at most `f64::MAX` (within 1 ulp of it), and +∞ only when the
-/// true length itself exceeds `f64::MAX`. The plain form is used everywhere it is finite, so its
-/// bits do not change. A NaN component gives NaN; otherwise an infinite component gives +∞.
+/// No overflow or underflow on the way: for a largest component inside `[2^-500, 2^500]` the
+/// plain form is used (its bits are kept); outside it every component is first scaled by the same
+/// exact power of two so the largest lies in `[1, 2)`, the plain form is taken there and the
+/// result scaled back. The error is therefore that of the plain form at normal magnitude:
+/// measured within 1 ulp of a double-double reference over a seeded sweep of the whole exponent
+/// range (2D and 3D, both ends), and within 1 ulp of the subnormal grid for subnormal lengths.
+/// The result is +∞ only when the true length exceeds `f64::MAX`. A NaN component gives NaN;
+/// otherwise an infinite component gives +∞.
 pub fn norm(v: [f64; 3]) -> f64 {
-    let [x, y, z] = v;
-    let plain = (x * x + y * y + z * z).sqrt();
-    if plain.is_finite() || !(x.is_finite() && y.is_finite() && z.is_finite()) {
-        return plain;
+    let largest = alice_det_math::max64(alice_det_math::max64(v[0].abs(), v[1].abs()), v[2].abs());
+    // inside `[2^-500, 2^500]` (or for 0, NaN and ∞) the squares neither overflow nor lose bits
+    // that matter: the plain form, whose bits the pinned paths depend on
+    if largest == 0.0 || !largest.is_finite() || (PLAIN_LOW..=PLAIN_HIGH).contains(&largest) {
+        return plain_norm(v);
     }
-    let largest = alice_det_math::max64(alice_det_math::max64(x.abs(), y.abs()), z.abs());
-    let [sx, sy, sz] = v.map(|c| c / largest);
-    largest * (sx * sx + sy * sy + sz * sz).sqrt()
+    // otherwise move the largest component into `[1, 2)` by an exact power of two, take the plain
+    // form there and move back: the same arithmetic as at normal magnitude, one rounding at the end
+    let k = binary_exponent(largest);
+    times_pow2(plain_norm(v.map(|c| times_pow2(c, -k))), k)
+}
+
+/// `sqrt(x² + y² + z²)` as written.
+fn plain_norm([x, y, z]: [f64; 3]) -> f64 {
+    (x * x + y * y + z * z).sqrt()
+}
+
+/// The plain form is used for a largest component in `[PLAIN_LOW, PLAIN_HIGH]` = `[2^-500, 2^500]`.
+const PLAIN_LOW: f64 = f64::from_bits((1023 - 500) << 52);
+const PLAIN_HIGH: f64 = f64::from_bits((1023 + 500) << 52);
+
+/// `2^e` for `e` in `[-1022, 1023]`, from its bits.
+fn pow2(e: i32) -> f64 {
+    debug_assert!((-1022..=1023).contains(&e));
+    f64::from_bits(((e + 1023) as u64) << 52)
+}
+
+/// `x · 2^e` for `e` in `[-1074, 1074]`, as two normal factors: exact whenever the result is
+/// normal, one rounding when it is subnormal.
+fn times_pow2(x: f64, e: i32) -> f64 {
+    let half = e / 2;
+    x * pow2(half) * pow2(e - half)
+}
+
+/// The binary exponent of a finite non-zero `m` (`m ∈ [2^k, 2^(k+1))`), subnormals included.
+fn binary_exponent(m: f64) -> i32 {
+    let raw = ((m.to_bits() >> 52) & 0x7ff) as i32;
+    if raw == 0 {
+        binary_exponent(m * pow2(64)) - 64
+    } else {
+        raw - 1023
+    }
 }
 
 /// The shortest path from `start` to `goal` (both included), or `None` when either is out of
