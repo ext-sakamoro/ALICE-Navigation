@@ -16,6 +16,9 @@ crate-type = ["rlib"]
 sdf-field = ["dep:alice-physics"]
 
 [dependencies]
+# Angles (velocity candidates) through deterministic math, not the platform libm; the same rev
+# alice-physics and alice-sdf use.
+alice-det-math = { git = "https://github.com/ext-sakamoro/ALICE-DetMath", rev = "2d01c63ff0849cf0ab82eafb89f87f1b729bd2a8", version = "0.5.2" }
 # The same rev alice-sdf pins: alice-physics from another rev is a different crate,
 # and alice-sdf's `SdfField` impls would not satisfy this one.
 alice-physics = { git = "https://github.com/ext-sakamoro/ALICE-Physics", rev = "b672ff2ec95c036ca60413c15e0212970026ec26", version = "4", default-features = false, features = ["std"], optional = true }

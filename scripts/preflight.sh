@@ -417,14 +417,14 @@ step "ci.yml / test: Clippy (all targets, -D warnings)"
 (
   gh_step ci.yml.test
 relint
-( export CARGO_TERM_COLOR="always" MIN_PASSED="139"; cargo clippy --locked --all-targets -- -D warnings )
+( export CARGO_TERM_COLOR="always" MIN_PASSED="146"; cargo clippy --locked --all-targets -- -D warnings )
 )
 
 step "ci.yml / test: Clippy (all targets, all features, -D warnings)"
 (
   gh_step ci.yml.test
 relint
-( export CARGO_TERM_COLOR="always" MIN_PASSED="139"; cargo clippy --locked --all-targets --all-features -- -D warnings )
+( export CARGO_TERM_COLOR="always" MIN_PASSED="146"; cargo clippy --locked --all-targets --all-features -- -D warnings )
 )
 
 step "ci.yml / actionlint: actionlint"
@@ -441,7 +441,7 @@ step "ci.yml / test: Passed tests are at least MIN_PASSED"
 (
   gh_step ci.yml.test
 (
-  export CARGO_TERM_COLOR="always" MIN_PASSED="139"
+  export CARGO_TERM_COLOR="always" MIN_PASSED="146"
   set -o pipefail
   log="$(mktemp)"
   cargo test --locked --all-targets --all-features 2>&1 | tee "$log"

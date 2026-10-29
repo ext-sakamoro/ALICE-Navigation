@@ -83,7 +83,9 @@ pub fn generate_velocity_candidates(
         let speed = max_speed * (ring as f64) / (num_rings as f64);
         for a in 0..num_angles {
             let angle = 2.0 * std::f64::consts::PI * (a as f64) / (num_angles as f64);
-            candidates.push(Vec2::new(speed * angle.cos(), speed * angle.sin()));
+            // through deterministic math: the platform libm differs between targets in the last bits
+            let (sin, cos) = alice_det_math::sin_cos64(angle);
+            candidates.push(Vec2::new(speed * cos, speed * sin));
         }
     }
     candidates

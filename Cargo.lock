@@ -11,6 +11,7 @@ source = "git+https://github.com/ext-sakamoro/ALICE-DetMath?rev=2d01c63ff0849cf0
 name = "alice-navigation"
 version = "1.0.0"
 dependencies = [
+ "alice-det-math",
  "alice-physics",
 ]
 

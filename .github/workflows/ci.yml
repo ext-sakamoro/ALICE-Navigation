@@ -33,7 +33,7 @@ jobs:
     env:
       # the passed-test count at the commit that set it, all features on; fewer passed tests (a
       # removed or skipped test, or none at all) is a failure
-      MIN_PASSED: "139"
+      MIN_PASSED: "146"
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -61,9 +61,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # the oracles in tests/sdf_reach_oracle.rs and tests/graph_search_oracle.rs, including
-      # their witness and path hashes (a `should_panic` test is skipped: wasm32 has no unwinding)
-      MIN_PASSED: "33"
+      # the oracles in tests/sdf_reach_oracle.rs, tests/graph_search_oracle.rs and
+      # tests/determinism_oracle.rs, including their witness, path and waypoint hashes (the `should_panic` tests are skipped: wasm32 has no unwinding)
+      MIN_PASSED: "39"
       CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
     steps:
       - uses: actions/checkout@v5
@@ -76,7 +76,7 @@ jobs:
           set -o pipefail
           rustup target add wasm32-wasip1
           log="$(mktemp)"
-          cargo test --locked --target wasm32-wasip1 --features sdf-field --test sdf_reach_oracle --test graph_search_oracle 2>&1 | tee "$log"
+          cargo test --locked --target wasm32-wasip1 --features sdf-field --test sdf_reach_oracle --test graph_search_oracle --test determinism_oracle 2>&1 | tee "$log"
           passed=$(grep -E '^test result: ' "$log" | awk '{s += $4} END {print s + 0}')
           echo "passed: ${passed} (minimum ${MIN_PASSED})"
           if [ "${passed}" -lt "${MIN_PASSED}" ]; then

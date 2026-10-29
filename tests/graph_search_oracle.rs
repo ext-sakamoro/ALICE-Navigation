@@ -117,8 +117,11 @@ fn assert_valid_path<G: SearchGraph>(g: &G, p: &[usize], start: usize, goal: usi
     }
 }
 
+/// Costs are compared bit for bit: the search and the reference sum the same edge costs in path
+/// order, so a shortest path has exactly the reference's cost (no tolerance to hide a different
+/// metric or summation).
 fn close(a: f64, b: f64) -> bool {
-    (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
+    a.to_bits() == b.to_bits()
 }
 
 #[test]
@@ -311,7 +314,7 @@ fn hierarchical_paths_are_valid_and_never_shorter_than_optimal() {
         let d = reference_costs(&mesh, s, &|_| true);
         if let Some(p) = hierarchical_astar(&mesh, s, t, &map) {
             assert_valid_path(&mesh, &p, s, t);
-            assert!(path_cost(&mesh, &p) + 1e-9 >= d[t]);
+            assert!(path_cost(&mesh, &p) >= d[t]);
             compared += 1;
         }
         // inside one cluster it is plain A*
