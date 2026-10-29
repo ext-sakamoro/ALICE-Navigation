@@ -33,7 +33,7 @@ jobs:
     env:
       # the passed-test count at the commit that set it, all features on; fewer passed tests (a
       # removed or skipped test, or none at all) is a failure
-      MIN_PASSED: "146"
+      MIN_PASSED: "148"
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -63,7 +63,7 @@ jobs:
     env:
       # the oracles in tests/sdf_reach_oracle.rs, tests/graph_search_oracle.rs and
       # tests/determinism_oracle.rs, including their witness, path and waypoint hashes (the `should_panic` tests are skipped: wasm32 has no unwinding)
-      MIN_PASSED: "39"
+      MIN_PASSED: "42"
       CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
     steps:
       - uses: actions/checkout@v5

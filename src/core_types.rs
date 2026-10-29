@@ -16,26 +16,15 @@ impl Vec2 {
         Self { x, y }
     }
 
-    /// `sqrt(x² + y²)` with `+ × √` only (correctly rounded, the same bits on every platform; the
-    /// same formula as [`crate::graph_search::distance`]).
-    ///
-    /// Valid while `x² + y²` is finite: components up to `sqrt(f64::MAX / 2)` ≈ 9.48e153 in
-    /// magnitude. Beyond that the result overflows to infinity, which debug builds reject.
+    /// `sqrt(x² + y²)`: [`crate::graph_search::norm`] with `z = 0`, so the same bits as
+    /// [`crate::graph_search::distance`] (`+ − × ÷ √` only, the same on every platform, no intermediate
+    /// overflow; NaN in, NaN out; an infinite component gives +∞).
     #[must_use]
-    // `hypot` would round more closely but is the platform libm (not bit-identical across targets)
-    #[allow(clippy::imprecise_flops)]
     pub fn length(self) -> f64 {
-        let r = (self.x * self.x + self.y * self.y).sqrt();
-        debug_assert!(
-            r.is_finite() || !(self.x.is_finite() && self.y.is_finite()),
-            "length of ({}, {}) overflows: components must stay within sqrt(f64::MAX / 2)",
-            self.x,
-            self.y
-        );
-        r
+        crate::graph_search::norm([self.x, self.y, 0.0])
     }
 
-    /// The length of `self − other` ([`Self::length`], same range).
+    /// The length of `self − other` ([`Self::length`]).
     #[must_use]
     pub fn distance_to(self, other: Self) -> f64 {
         self.sub(other).length()

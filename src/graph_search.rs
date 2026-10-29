@@ -35,10 +35,28 @@ pub trait SearchGraph {
     }
 }
 
-/// Euclidean distance (`+ − × sqrt`).
+/// Euclidean distance: [`norm`] of `a − b`.
 pub fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
-    let (dx, dy, dz) = (a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-    (dx * dx + dy * dy + dz * dz).sqrt()
+    norm([a[0] - b[0], a[1] - b[1], a[2] - b[2]])
+}
+
+/// Euclidean length `sqrt(x² + y² + z²)` with `+ − × ÷ √` only (correctly rounded by IEEE 754,
+/// the same bits on every platform).
+///
+/// No intermediate overflow: when the squares overflow, the length is computed as
+/// `m · sqrt((x/m)² + (y/m)² + (z/m)²)` with `m` the largest magnitude, so the result is finite
+/// whenever the true length is at most `f64::MAX` (within 1 ulp of it), and +∞ only when the
+/// true length itself exceeds `f64::MAX`. The plain form is used everywhere it is finite, so its
+/// bits do not change. A NaN component gives NaN; otherwise an infinite component gives +∞.
+pub fn norm(v: [f64; 3]) -> f64 {
+    let [x, y, z] = v;
+    let plain = (x * x + y * y + z * z).sqrt();
+    if plain.is_finite() || !(x.is_finite() && y.is_finite() && z.is_finite()) {
+        return plain;
+    }
+    let largest = alice_det_math::max64(alice_det_math::max64(x.abs(), y.abs()), z.abs());
+    let [sx, sy, sz] = v.map(|c| c / largest);
+    largest * (sx * sx + sy * sy + sz * sz).sqrt()
 }
 
 /// The shortest path from `start` to `goal` (both included), or `None` when either is out of

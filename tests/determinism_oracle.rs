@@ -65,18 +65,172 @@ fn vec2_length_is_exact_where_the_square_root_is() {
     assert_eq!(Vec2::new(1.0, 1.0).length(), std::f64::consts::SQRT_2);
 }
 
-#[test]
-fn vec2_length_is_finite_up_to_the_stated_range() {
-    let edge = (f64::MAX / 2.0).sqrt() * 0.999_999;
-    let l = Vec2::new(edge, -edge).length();
-    assert!(l.is_finite(), "{l}");
+// --- a high-precision reference for the length (double-double, no fused operation) -------------
+
+/// `a·b` exactly as `hi + lo` (Dekker's split).
+fn two_product(a: f64, b: f64) -> (f64, f64) {
+    let split = |x: f64| {
+        let c = 134_217_729.0 * x; // 2^27 + 1
+        let hi = c - (c - x);
+        (hi, x - hi)
+    };
+    let p = a * b;
+    let ((ah, al), (bh, bl)) = (split(a), split(b));
+    (p, ((ah * bh - p) + ah * bl + al * bh) + al * bl)
+}
+
+/// `a + b` exactly as `hi + lo`.
+fn two_sum(a: f64, b: f64) -> (f64, f64) {
+    let s = a + b;
+    let bb = s - a;
+    (s, (a - (s - bb)) + (b - bb))
+}
+
+/// `sqrt(x² + y² + z²)` to about 1e-30 relative, then rounded once: the components are first
+/// scaled by an exact power of two so nothing overflows, the squares summed in double-double, and
+/// the square root refined by one Newton step in double-double.
+fn reference_norm(v: [f64; 3]) -> f64 {
+    let m = v
+        .iter()
+        .fold(0.0f64, |a, b| if b.abs() > a { b.abs() } else { a });
+    if m == 0.0 {
+        return 0.0;
+    }
+    // the exponent of the largest magnitude, from its bits (log2 rounds f64::MAX up to 1024)
+    let k = ((m.to_bits() >> 52) & 0x7ff) as i32 - 1023;
+    let scale = pow2(-k);
+    let (mut hi, mut lo) = (0.0, 0.0);
+    for c in v {
+        let s = c * scale; // exact (power of two, no subnormals at these magnitudes)
+        let (p, e) = two_product(s, s);
+        let (h, l) = two_sum(hi, p);
+        hi = h;
+        lo += l + e;
+    }
+    let (h, l) = two_sum(hi, lo);
+    let r = h.sqrt();
+    let (rr, rre) = two_product(r, r);
+    let corr = ((h - rr) - rre + l) / (2.0 * r);
+    (r + corr) * pow2(k)
+}
+
+/// `2^e` exactly, built from its bits (normal and subnormal range).
+fn pow2(e: i32) -> f64 {
+    assert!(
+        (-1074..=1023).contains(&e),
+        "2^{e} is not a finite non-zero f64"
+    );
+    if e >= -1022 {
+        f64::from_bits(((e + 1023) as u64) << 52)
+    } else {
+        f64::from_bits(1u64 << (e + 1074))
+    }
+}
+
+fn ulps(a: f64, b: f64) -> u64 {
+    (a.to_bits() as i64 - b.to_bits() as i64).unsigned_abs()
 }
 
 #[test]
-#[cfg(debug_assertions)]
-#[should_panic(expected = "overflows")]
-fn vec2_length_beyond_the_range_is_rejected_in_debug() {
-    let _ = Vec2::new(1e154, 1e154).length();
+fn huge_lengths_are_finite_and_within_one_ulp() {
+    use alice_navigation::graph_search::norm;
+    let big = [
+        [1e154, 1e154, 0.0],
+        [1e154, -3e153, 7e153],
+        [f64::MAX, 0.0, 0.0],
+        [f64::MAX / 2.0, f64::MAX / 2.0, 0.0],
+        [f64::MAX / 3.0, -f64::MAX / 3.0, f64::MAX / 3.0],
+        [1.5e300, 2e299, -1e300],
+        // the largest component in each position
+        [3e299, -1.7e308, 1e300],
+        [1e300, -2e299, 1.7e308],
+        // and much larger than the others (scaling by a smaller one overflows)
+        [0.0, 0.0, f64::MAX],
+        [1.0, -1e-300, 1.7e308],
+    ];
+    for v in big {
+        let n = norm(v);
+        assert!(n.is_finite(), "{v:?} → {n}");
+        let r = reference_norm(v);
+        assert!(
+            ulps(n, r) <= 1,
+            "{v:?}: {n} vs reference {r} ({} ulps)",
+            ulps(n, r)
+        );
+    }
+    assert!(Vec2::new(1e154, 1e154).length().is_finite());
+    assert!(Vec2::new(f64::MAX / 2.0, -f64::MAX / 2.0)
+        .distance_to(Vec2::new(0.0, 0.0))
+        .is_finite());
+    // the true length √2·MAX is not representable: +∞ is the stated answer, not an overflow
+    assert_eq!(Vec2::new(f64::MAX, -f64::MAX).length(), f64::INFINITY);
+    // and the ordinary range stays within 1 ulp of the reference too
+    let mut g = Lcg(5);
+    for _ in 0..2000 {
+        let v = [
+            g.next() * 2e3 - 1e3,
+            g.next() * 2e3 - 1e3,
+            g.next() * 2e3 - 1e3,
+        ];
+        assert!(ulps(norm(v), reference_norm(v)) <= 1, "{v:?}");
+    }
+}
+
+#[test]
+fn the_plain_form_keeps_its_bits_where_it_is_finite() {
+    use alice_navigation::graph_search::norm;
+    let mut g = Lcg(11);
+    for _ in 0..20_000 {
+        let e = (g.next() * 600.0 - 300.0).round() as i32;
+        let s = pow2(e);
+        let v = [
+            (g.next() - 0.5) * s,
+            (g.next() - 0.5) * s,
+            (g.next() - 0.5) * s,
+        ];
+        let plain = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        if plain.is_finite() {
+            assert_eq!(norm(v).to_bits(), plain.to_bits(), "{v:?}");
+        }
+    }
+}
+
+#[test]
+fn lengths_never_decrease_across_the_switch_point() {
+    use alice_navigation::graph_search::norm;
+    // directions whose plain form overflows near different thresholds
+    for (dir, threshold) in [
+        ([1.0, 0.0, 0.0], f64::MAX.sqrt()),
+        ([1.0, 1.0, 0.0], (f64::MAX / 2.0).sqrt()),
+        ([1.0, 1.0, 1.0], (f64::MAX / 3.0).sqrt()),
+        ([1.0, 0.5, -0.25], (f64::MAX / 1.3125).sqrt()),
+    ] {
+        let mut x = f64::from_bits(threshold.to_bits() - 5000);
+        let mut prev = 0.0f64;
+        let mut switched = false;
+        for _ in 0..10_000 {
+            let v = [dir[0] * x, dir[1] * x, dir[2] * x];
+            let n = norm(v);
+            assert!(n.is_finite() && n >= prev, "{dir:?} at {x}: {n} < {prev}");
+            switched |= !(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().is_finite();
+            prev = n;
+            x = f64::from_bits(x.to_bits() + 1);
+        }
+        assert!(switched, "{dir:?}: the sweep never reached the fallback");
+    }
+}
+
+#[test]
+fn non_finite_components() {
+    use alice_navigation::graph_search::norm;
+    // NaN in, NaN out; otherwise an infinite component gives +∞
+    assert!(norm([f64::NAN, 1.0, 2.0]).is_nan());
+    assert!(norm([f64::INFINITY, f64::NAN, 0.0]).is_nan());
+    assert_eq!(norm([f64::INFINITY, 1.0, 0.0]), f64::INFINITY);
+    assert_eq!(norm([0.0, f64::NEG_INFINITY, 1e300]), f64::INFINITY);
+    assert!(Vec2::new(f64::NAN, 0.0).length().is_nan());
+    assert_eq!(Vec2::new(f64::NEG_INFINITY, 3.0).length(), f64::INFINITY);
+    assert_eq!(norm([0.0, 0.0, 0.0]), 0.0);
 }
 
 /// Exact triangle chains of find_path on fixed meshes (the stated tie rule picks these among
