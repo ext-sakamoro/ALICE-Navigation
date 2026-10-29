@@ -1,6 +1,7 @@
 //! Reachability over a distance field: a room with a wall and a doorway, walked by a capsule.
 //!
 //! `cargo run --example sdf_reach --features sdf-field`
+use alice_det_math::{max, min};
 use alice_navigation::sdf_reach::{reach_map, Clearance, ReachGrid};
 use alice_physics::SdfField;
 
@@ -13,8 +14,8 @@ fn slab(p: [f32; 3], c: [f32; 3], h: [f32; 3]) -> f32 {
         (p[1] - c[1]).abs() - h[1],
         (p[2] - c[2]).abs() - h[2],
     ];
-    let o = [q[0].max(0.0), q[1].max(0.0), q[2].max(0.0)];
-    (o[0] * o[0] + o[1] * o[1] + o[2] * o[2]).sqrt() + q[0].max(q[1]).max(q[2]).min(0.0)
+    let o = [max(q[0], 0.0), max(q[1], 0.0), max(q[2], 0.0)];
+    (o[0] * o[0] + o[1] * o[1] + o[2] * o[2]).sqrt() + min(max(max(q[0], q[1]), q[2]), 0.0)
 }
 
 impl SdfField for Room {
@@ -22,7 +23,7 @@ impl SdfField for Room {
         let p = [x, y, z];
         let left = slab(p, [2.05, 1.5, 4.0], [2.05, 1.5, 0.15]);
         let right = slab(p, [7.95, 1.5, 4.0], [2.05, 1.5, 0.15]);
-        y.min(left).min(right)
+        min(min(y, left), right)
     }
     fn normal(&self, _: f32, _: f32, _: f32) -> (f32, f32, f32) {
         (0.0, 1.0, 0.0)

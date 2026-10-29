@@ -101,7 +101,7 @@ impl Clearance {
             .heights
             .windows(2)
             .map(|w| w[1] - w[0])
-            .fold(0.0f32, f32::max);
+            .fold(0.0f32, alice_det_math::max);
         self.lipschitz * (self.radius + (cell * cell * 0.5 + s * s * 0.25).sqrt())
     }
 

@@ -23,12 +23,15 @@ lib = root / "src" / "lib.rs"
 probe = root / "src" / "disallowed_probe.rs"
 original = lib.read_text(encoding="utf-8")
 
-ARGS = {"atan2": 2, "hypot": 2, "log": 2, "powf": 2, "powi": 2}
+ARGS = {"atan2": 2, "hypot": 2, "log": 2, "powf": 2, "powi": 2, "max": 2, "min": 2, "clamp": 3}
 
 
 def call(ty: str, method: str) -> tuple[str, str]:
     one = "1.5" + ty
     extra = {"powi": "2", "log": "2.0" + ty}.get(method, "0.5" + ty)
+    if ARGS.get(method) == 3:
+        lo, hi = "0.5" + ty, "2.5" + ty
+        return f"{one}.{method}({lo}, {hi})", f"{ty}::{method}({one}, {lo}, {hi})"
     if ARGS.get(method) == 2:
         return f"{one}.{method}({extra})", f"{ty}::{method}({one}, {extra})"
     return f"{one}.{method}()", f"{ty}::{method}({one})"

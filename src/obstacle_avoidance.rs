@@ -23,7 +23,7 @@ pub fn avoid_obstacles(
         let d = future_pos.distance_to(obs.center) - obs.radius;
         if d < lookahead {
             let away = future_pos.sub(obs.center).normalized();
-            let strength = avoidance_strength * (1.0 - d / lookahead).max(0.0);
+            let strength = avoidance_strength * alice_det_math::max64(1.0 - d / lookahead, 0.0);
             steer = steer.add(away.scale(strength));
         }
     }

@@ -2,6 +2,7 @@
 //! the clearance bound of the module doc), never from the implementation under test.
 #![cfg(feature = "sdf-field")]
 
+use alice_det_math::{max, min};
 use alice_navigation::sdf_reach::{reach, reach_map, Clearance, ReachError, ReachGrid, MAX_CELLS};
 use alice_physics::SdfField;
 
@@ -22,7 +23,7 @@ fn central_normal<F: Fn(f32, f32, f32) -> f32>(f: F, x: f32, y: f32, z: f32) -> 
         f(x, y + e, z) - f(x, y - e, z),
         f(x, y, z + e) - f(x, y, z - e),
     ];
-    let l = (g[0] * g[0] + g[1] * g[1] + g[2] * g[2]).sqrt().max(1e-12);
+    let l = max((g[0] * g[0] + g[1] * g[1] + g[2] * g[2]).sqrt(), 1e-12);
     (g[0] / l, g[1] / l, g[2] / l)
 }
 
@@ -37,15 +38,15 @@ fn box_distance(p: [f32; 3], c: [f32; 3], h: [f32; 3]) -> f32 {
         (p[1] - c[1]).abs() - h[1],
         (p[2] - c[2]).abs() - h[2],
     ];
-    let o = [q[0].max(0.0), q[1].max(0.0), q[2].max(0.0)];
-    (o[0] * o[0] + o[1] * o[1] + o[2] * o[2]).sqrt() + q[0].max(q[1]).max(q[2]).min(0.0)
+    let o = [max(q[0], 0.0), max(q[1], 0.0), max(q[2], 0.0)];
+    (o[0] * o[0] + o[1] * o[1] + o[2] * o[2]).sqrt() + min(max(max(q[0], q[1]), q[2]), 0.0)
 }
 
 impl Boxes {
     fn d(&self, x: f32, y: f32, z: f32) -> f32 {
         self.boxes
             .iter()
-            .fold(y, |m, (c, h)| m.min(box_distance([x, y, z], *c, *h)))
+            .fold(y, |m, (c, h)| min(m, box_distance([x, y, z], *c, *h)))
     }
 }
 
@@ -67,7 +68,7 @@ struct Corridor {
 
 impl Corridor {
     fn d(&self, x: f32, y: f32, z: f32) -> f32 {
-        (self.w * 0.5 - (self.n[0] * x + self.n[1] * z).abs()).min(y)
+        min(self.w * 0.5 - (self.n[0] * x + self.n[1] * z).abs(), y)
     }
 }
 

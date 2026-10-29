@@ -44,7 +44,7 @@ pub fn closest_point_on_segment(p: Vec2, a: Vec2, b: Vec2) -> Vec2 {
     let ab = b.sub(a);
     let ap = p.sub(a);
     let t = ap.dot(ab) / ab.dot(ab);
-    let t = t.clamp(0.0, 1.0);
+    let t = alice_det_math::clamp64(t, 0.0, 1.0);
     a.add(ab.scale(t))
 }
 

@@ -2,6 +2,8 @@
 # target (x86_64, aarch64, wasm32). The platform libm transcendentals and `hypot` differ between
 # targets in the last bits, so distances use + − × ÷ and sqrt only (correctly rounded by IEEE 754)
 # and angles go through alice-det-math. `mul_add` is correctly rounded and stays allowed.
+# `max` / `min` / `clamp` leave the sign of a zero and the NaN payload to the target; alice-det-math
+# defines both (ALICE-Law G2: max(-0, +0) = +0, min = -0, a NaN operand yields the other).
 disallowed-methods = [
     { path = "f64::sin", reason = "platform libm, not bit-identical across targets; use the alice_det_math function" },
     { path = "f64::cos", reason = "platform libm, not bit-identical across targets; use the alice_det_math function" },
@@ -55,4 +57,10 @@ disallowed-methods = [
     { path = "f32::powi", reason = "platform libm, not bit-identical across targets; use the alice_det_math function" },
     { path = "f32::cbrt", reason = "platform libm, not bit-identical across targets; use the alice_det_math function" },
     { path = "f32::hypot", reason = "platform libm, not bit-identical across targets; use (x * x + y * y).sqrt()" },
+    { path = "f64::max", reason = "zero sign and NaN payload are target-defined (G2); use alice_det_math::max64" },
+    { path = "f64::min", reason = "zero sign and NaN payload are target-defined (G2); use alice_det_math::min64" },
+    { path = "f64::clamp", reason = "zero sign and NaN payload are target-defined (G2); use alice_det_math::clamp64" },
+    { path = "f32::max", reason = "zero sign and NaN payload are target-defined (G2); use alice_det_math::max" },
+    { path = "f32::min", reason = "zero sign and NaN payload are target-defined (G2); use alice_det_math::min" },
+    { path = "f32::clamp", reason = "zero sign and NaN payload are target-defined (G2); use alice_det_math::clamp" },
 ]
