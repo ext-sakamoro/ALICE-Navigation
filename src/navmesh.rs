@@ -1,8 +1,6 @@
 //! Navigation Mesh (`NavTriangle` / `NavMesh` / `build_grid_navmesh`).
 
 use crate::core_types::{Bounds2D, Vec2};
-use crate::prm::DijkNode;
-use std::collections::BinaryHeap;
 
 // 8. Navigation Mesh
 // ============================================================
@@ -78,7 +76,9 @@ impl NavMesh {
         self.triangles.iter().position(|t| t.contains(p))
     }
 
-    /// Plan a path through the navmesh using A* on triangle centroids.
+    /// Plan a path through the navmesh: the shortest chain of triangle centroids
+    /// ([`crate::graph_search::astar`], deterministic tie rule), as waypoints from `start` through
+    /// the centroids of the inner triangles to `goal`.
     #[must_use]
     pub fn find_path(&self, start: Vec2, goal: Vec2) -> Option<Vec<Vec2>> {
         let start_tri = self.find_triangle(start)?;
@@ -88,54 +88,7 @@ impl NavMesh {
             return Some(vec![start, goal]);
         }
 
-        // Dijkstra on triangle graph.
-        let n = self.triangles.len();
-        let mut dist = vec![f64::INFINITY; n];
-        let mut prev = vec![usize::MAX; n];
-        dist[start_tri] = 0.0;
-
-        let mut heap = BinaryHeap::new();
-        heap.push(DijkNode {
-            cost: 0.0,
-            index: start_tri,
-        });
-
-        while let Some(DijkNode { cost, index }) = heap.pop() {
-            if index == goal_tri {
-                break;
-            }
-            if cost > dist[index] {
-                continue;
-            }
-            for &neighbor_opt in &self.triangles[index].neighbors {
-                if let Some(neighbor) = neighbor_opt {
-                    let edge_cost = self.triangles[index]
-                        .centroid()
-                        .distance_to(self.triangles[neighbor].centroid());
-                    let new_cost = dist[index] + edge_cost;
-                    if new_cost < dist[neighbor] {
-                        dist[neighbor] = new_cost;
-                        prev[neighbor] = index;
-                        heap.push(DijkNode {
-                            cost: new_cost,
-                            index: neighbor,
-                        });
-                    }
-                }
-            }
-        }
-
-        if dist[goal_tri].is_infinite() {
-            return None;
-        }
-
-        let mut tri_path = Vec::new();
-        let mut cur = goal_tri;
-        while cur != usize::MAX {
-            tri_path.push(cur);
-            cur = prev[cur];
-        }
-        tri_path.reverse();
+        let tri_path = crate::graph_search::astar(self, start_tri, goal_tri)?;
 
         // Convert to waypoints through centroids.
         let mut path = vec![start];

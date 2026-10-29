@@ -27,6 +27,7 @@
 pub mod collision;
 pub mod core_types;
 pub mod dynamic_replan;
+pub mod graph_search;
 pub mod navmesh;
 pub mod obstacle_avoidance;
 pub mod path_smoothing;
