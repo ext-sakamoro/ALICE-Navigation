@@ -18,3 +18,4 @@
 - **Breaking:** `Vec2::length` / `Vec2::distance_to` は `+ × √` だけで計算する (以前は `f64::hypot`、platform の libm で target により最終 bit が違いうる) どの platform でも同じ bit になる代わりに、値が最終 bit で以前と違うことがあり、経路の長さ・RRT・PRM・平滑化など距離を使う結果に及ぶ
 - `Vec2` の距離と長さ (と `graph_search::distance`) は途中で overflow も underflow もしない 最大成分が `[2^-500, 2^500]` の内では `(x * x + y * y).sqrt()` と同じ bit、外では全成分を同じ 2 の冪で正確に拡大縮小してから同じ式で求める 誤差は通常の大きさでの式と同じで、指数の全域 (2D / 3D、両端) を掃いた測定で double-double の参照から 1 ulp 以内、subnormal の長さは subnormal の格子で 1 ulp 以内 真の長さが `f64::MAX` を超える時だけ無限大 NaN の成分は NaN、無限大の成分は +∞
 - **Behavior change:** `velocity_obstacles::generate_velocity_candidates` の角度を `alice-det-math` で計算する (以前は platform の `sin` / `cos`) 値が最終 bit で以前と違うことがある
+- CI: 公開する文面の検査 (`Public text` workflow、`scripts/public_text.sh`) を追加 ALICE-Law の `scripts/public_text_check.py` を `.github/public-text-pin` の revision で取得し、SHA-256 が一致した時だけ使って、HEAD の全 tracked file (path と本文) と送った commit (message・追加行・追加 path) を読む 何も比較できなければ失敗する preflight でも走る
