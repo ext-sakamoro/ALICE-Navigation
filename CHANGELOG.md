@@ -13,6 +13,7 @@
 - 依存 `alice-det-math` (角度の計算)
 
 ### Changed
+- CI: wasm32 の job の wasmtime を v49.0.2 に固定し、配布物を SHA-256 (a4d6e9e3…、release の digest と手元の再計算で一致) で照合して retry 付きで取り、binary を cache する 配布元が落ち続けた時は同じ版の wasmtime-cli を crates.io から `cargo install --locked` で作る `wasmtime --version` が動かなければ fail (setup action は latest を選び、配布元の HTTP 504 で他の repository の job が落ちた) `scripts/preflight.sh` を生成器で生成し直した (main の版は公開文面の検査など後から足した CI の step を含んでいなかった)
 
 - **Breaking:** `NavMesh::find_path` は三角形の重心の最短の列を `graph_search::astar` で求める (以前は別の Dijkstra) 長さの同じ経路が複数ある時は同点の規則 (f、g、三角形の番号の順、同じ g なら小さい番号の親) で 1 つに決まり、以前と違う列 (同じ長さの別の経路) を返すことがある
 - **Breaking:** `Vec2::length` / `Vec2::distance_to` は `+ × √` だけで計算する (以前は `f64::hypot`、platform の libm で target により最終 bit が違いうる) どの platform でも同じ bit になる代わりに、値が最終 bit で以前と違うことがあり、経路の長さ・RRT・PRM・平滑化など距離を使う結果に及ぶ

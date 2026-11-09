@@ -6,7 +6,7 @@
 # Run `--quick` before every push.
 #
 # usage: scripts/preflight.sh [--quick]   (--quick skips the test / bench suites)
-# generator rev e2bb3de7ed4ef9138b566d6274e62d4557010dd9
+# generator rev 3144a7f8709082360b591d89edfb2344eeb3603d
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # --- heavy slot (begin) ---
@@ -564,13 +564,16 @@ step() { printf '\n\033[1;34m== %s\033[0m\n' "$*"; }
 # touching the crate roots invalidates only this repo's fingerprints.
 relint() { git ls-files | grep -E '(^|/)src/(lib|main)\.rs$' | xargs -r touch; }
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing tool: $1 ($2)" >&2; exit 1; }; }
-has_toolchain() { grep -q "^$1" <<<"$(rustup toolchain list)"; }
 
 # Steps CI runs that this file cannot reproduce locally (they can only fail remotely):
-#   - ci.yml:wasm: uses bytecodealliance/actions/wasmtime/setup@v1 (an action this file cannot run)
+#   - ci.yml:wasm:Install wasmtime (its `if:` runs on what happened earlier on the runner)
+#   - ci.yml:wasm:Check wasmtime runs (no cargo / grep)
 #   - ci.yml:wasm:Passed tests are at least MIN_PASSED (needs network / runner-only)
+#   - public-text.yml:public-text: uses actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 (an action this file cannot run)
+#   - public-text.yml:public-text:Public text (tree at HEAD, then the pushed commits) (no cargo / grep)
 
 need actionlint "brew install actionlint"
+command -v python >/dev/null 2>&1 || python() { python3 "$@"; }
 
 step "ci.yml / fmt: Check formatting"
 (
@@ -596,6 +599,12 @@ step "ci.yml / actionlint: actionlint"
 (
   gh_step ci.yml.actionlint
 actionlint .github/workflows/*.yml
+)
+
+step "public-text.yml / public-text: Tests of scripts/public_text.sh (no network)"
+(
+  gh_step public-text.yml.public-text
+( python scripts/test_public_text.py )
 )
 
 if [[ $quick -eq 1 ]]; then
