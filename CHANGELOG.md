@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 依存 `alice-det-math` を rev 固定 (0.5.2) から `branch = "main"` + `version = "0.6"` に、`alice-physics` (feature `sdf-field`) を rev 固定から `branch = "main"` + `version = "4"` に (alice-sdf と同じ出所で、link する det-math は 1 つ) velocity の候補の hash (`tests/determinism_oracle.rs` の golden) は不変
+
 ### Added
 
 - `graph_search`: 位置を持つ任意の graph (`SearchGraph`) に 1 つの決定論の A* (`astar` / `astar_filtered` / `hierarchical_astar` / `path_cost` / `cluster_grid` / `build_occupancy_navmesh`) 辺の費用は直線距離以上が契約 (debug build で検査)、算術は `+ − × ÷ √` だけ
