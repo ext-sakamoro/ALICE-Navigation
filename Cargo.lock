@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "alice-det-math"
 version = "0.6.1"
-source = "git+https://github.com/ext-sakamoro/ALICE-DetMath?branch=main#95934099bfe6aa31296633ac35b023ed74878791"
+source = "git+https://github.com/ext-sakamoro/ALICE-DetMath?branch=main#8a46fde1e2899016b76822762439a2e9e2adad49"
 
 [[package]]
 name = "alice-navigation"
@@ -18,7 +18,7 @@ dependencies = [
 [[package]]
 name = "alice-physics"
 version = "4.0.0"
-source = "git+https://github.com/ext-sakamoro/ALICE-Physics?branch=main#492ed114018ea151f9d9d58964a1b5f406db1d7a"
+source = "git+https://github.com/ext-sakamoro/ALICE-Physics?branch=main#b058291bc0a7de6eb9c83301a0f4a929e1e1b504"
 dependencies = [
  "alice-physics-core",
 ]
@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "alice-physics-core"
 version = "4.0.0"
-source = "git+https://github.com/ext-sakamoro/ALICE-Physics?branch=main#492ed114018ea151f9d9d58964a1b5f406db1d7a"
+source = "git+https://github.com/ext-sakamoro/ALICE-Physics?branch=main#b058291bc0a7de6eb9c83301a0f4a929e1e1b504"
 dependencies = [
  "alice-det-math",
  "sha2",
